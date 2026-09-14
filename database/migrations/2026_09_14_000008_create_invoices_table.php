@@ -23,6 +23,7 @@ return new class extends Migration
             $table->timestamp('paid_at')->nullable();
             $table->timestamps();
 
+            $table->unique(['subscription_id', 'period_starts_at', 'period_ends_at'], 'invoices_sub_period_unique');
             $table->index(['merchant_id', 'period_starts_at', 'period_ends_at']);
             $table->index(['customer_id', 'period_starts_at']);
             $table->index(['subscription_id', 'period_starts_at']);

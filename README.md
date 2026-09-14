@@ -6,7 +6,7 @@ This project is a multi-tenant SaaS Subscription Billing & Usage-Metering backen
 
 ## Current Architecture
 
-The codebase is currently in the **Asynchronous Usage Aggregation** phase. The database migrations, Eloquent domain models, relationships, model factories, schema integrity tests, 50L+ usage event scalability design, high-throughput `POST /api/v1/usage` API, and the asynchronous chunked `usage:aggregate` infrastructure have been established.
+The codebase is currently in the **Core Billing Engine** phase. The database migrations, Eloquent domain models, relationships, model factories, schema integrity tests, 50L+ usage event scalability design, high-throughput `POST /api/v1/usage` API, asynchronous `usage:aggregate` infrastructure, and the deterministic, segment-aware `BillingService` / `billing:generate` engine have been established.
 
 ## Tech Stack
 
@@ -170,6 +170,76 @@ Usage events arriving out of chronological order (e.g. Sept 10 event arriving on
 ### Subscription Segment Isolation for Mid-Cycle Plan Changes
 
 Daily aggregates preserve the `subscription_segment_id` associated with each usage event. If a customer upgrades plans mid-cycle, usage incurred under Segment A and Segment B on their respective dates remain separated in `daily_usages`, allowing future billing calculation to apply the exact snapshot pricing of each segment correctly.
+
+---
+
+## Core Billing Engine Architecture
+
+The billing engine generates immutable `invoices` and `invoice_items` at cycle end based on pre-aggregated `daily_usages` and historical `subscription_segments`.
+
+```
+Subscription Cycle End ──> Command / Queue ──> ProcessSubscriptionBilling Job ──> BillingService ──> Invoice + Items
+```
+
+### Key Components:
+- **`BillingService`** ([app/Services/BillingService.php](file:///d:/subscription-billing-usage-metering/app/Services/BillingService.php)): Isolated domain service managing proration, included allowance, overage, and transactional invoice generation.
+- **`ProcessSubscriptionBilling`** ([app/Jobs/ProcessSubscriptionBilling.php](file:///d:/subscription-billing-usage-metering/app/Jobs/ProcessSubscriptionBilling.php)): Queueable job (`$tries = 3`, `$backoff = [10, 30, 60]`).
+- **`billing:generate` Command** ([app/Console/Commands/GenerateInvoicesCommand.php](file:///d:/subscription-billing-usage-metering/app/Console/Commands/GenerateInvoicesCommand.php)): Artisan CLI command for triggering cycle-end invoice generation (`php artisan billing:generate --date=2026-09-30 --queue`).
+
+---
+
+### Proration Formula
+
+Proration uses deterministic calendar-day calculations over exact cycle bounds:
+
+$$\text{Daily Base Rate} = \frac{\text{snapshot\_base\_price}}{\text{total\_cycle\_days}}$$
+
+$$\text{Prorated Base Charge} = \text{round}(\text{Daily Base Rate} \times \text{segment\_active\_days}, 2)$$
+
+- **Full Cycle**: If a segment is active for the full cycle ($\text{segment\_active\_days} = \text{total\_cycle\_days}$), the prorated base charge equals `snapshot_base_price` exactly.
+- **Partial Cycle**: If active for part of the cycle (e.g. 15 days out of 30), base price is prorated proportionally.
+
+---
+
+### Included Allowance & Overage Formula
+
+To align with segment duration, included usage allowances are prorated per active segment:
+
+$$\text{Prorated Included Allowance} = \left\lfloor \text{snapshot\_included\_units} \times \frac{\text{segment\_active\_days}}{\text{total\_cycle\_days}} \right\rfloor$$
+
+$$\text{Billable Overage Units} = \max(0, \text{total\_segment\_usage} - \text{Prorated Included Allowance})$$
+
+$$\text{Overage Charge Amount} = \text{round}(\text{Billable Overage Units} \times \text{snapshot\_overage\_rate}, 2)$$
+
+---
+
+### Segment-Based Billing (Upgrades & Downgrades)
+
+When a customer upgrades or downgrades plans mid-cycle:
+1. Each historical `SubscriptionSegment` active during the billing period is evaluated independently.
+2. Segment A usage is billed against Segment A snapshot pricing and prorated allowance.
+3. Segment B usage is billed against Segment B snapshot pricing and prorated allowance.
+4. Total Invoice Amount = $\sum \text{Segment Base Charges} + \sum \text{Segment Overage Charges}$.
+
+---
+
+### Historical Pricing Snapshots
+
+Billing calculations use `snapshot_base_price`, `snapshot_included_usage_units`, and `snapshot_overage_rate_per_unit` from `SubscriptionSegment` instead of reading live `Plan` pricing. Future edits to plan prices do not alter historical or past billing cycles.
+
+---
+
+### Monetary Precision & Rounding Strategy
+
+- **Decimal Precision**: Base charges and overage amounts are rounded to 2 decimal places (`round(..., 2)`).
+- **Subtotal & Total Consistency**: `invoice.subtotal` and `invoice.total` are computed as the exact sum of line items: $\text{Subtotal} = \text{Total} = \sum \text{item.amount}$.
+
+---
+
+### Billing Idempotency & Retry Safety
+
+- **Database Uniqueness**: Guaranteed by compound index `UNIQUE (subscription_id, period_starts_at, period_ends_at)` on `invoices`.
+- **Idempotent Retry**: Re-running `BillingService` or `billing:generate` for a cycle that has already been billed returns the existing `Invoice` record without creating duplicate invoices or line items.
 
 ---
 
