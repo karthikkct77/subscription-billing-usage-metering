@@ -1,0 +1,446 @@
+We are now performing the FINAL RELEASE READINESS / QA REVIEW for the Subscription Billing & Usage-Metering System.
+
+This is an interview take-home assignment submission.
+
+IMPORTANT:
+- Do NOT add new business features.
+- Do NOT redesign the architecture.
+- Do NOT create new modules.
+- Do NOT change working behavior unnecessarily.
+- Do NOT commit or push Git changes.
+- Treat the current implementation as feature complete.
+- Only fix genuine correctness, test, configuration, documentation, or submission-readiness issues.
+
+==================================================
+1. PROJECT HEALTH CHECK
+==================================================
+
+Inspect the complete repository.
+
+Verify:
+
+- Laravel application boots correctly.
+- Composer dependencies are valid.
+- Environment configuration is documented.
+- Database configuration is valid.
+- Cache configuration is valid.
+- Queue configuration is valid.
+- Application routes load successfully.
+- No fatal configuration issues exist.
+
+Run appropriate commands such as:
+
+php artisan about
+php artisan route:list
+php artisan migrate:status
+php artisan test
+
+Only use commands supported by the current project.
+
+==================================================
+2. CLEAN DATABASE VALIDATION
+==================================================
+
+Verify that the application can build its database from a clean state.
+
+Use the project's normal migration workflow.
+
+If safe for the development/test environment, validate:
+
+php artisan migrate:fresh
+
+Then run the complete test suite.
+
+Do not execute destructive commands against any production database.
+
+Verify:
+
+- all migrations execute in correct order
+- foreign keys work
+- unique constraints work
+- indexes exist
+- no migration depends on manual database changes.
+
+==================================================
+3. TEST SUITE
+==================================================
+
+Run the complete test suite.
+
+Verify all tests pass.
+
+Review test output for:
+
+- failures
+- warnings
+- skipped tests
+- risky tests
+- unexpected deprecations.
+
+Do not hide failures.
+
+If a failure is caused by a genuine application bug, fix it.
+
+If a test is incorrectly asserting implementation details, improve the test while preserving business coverage.
+
+Do not weaken assertions simply to achieve green tests.
+
+==================================================
+4. ROUTE REVIEW
+==================================================
+
+Run:
+
+php artisan route:list
+
+Review all application routes.
+
+Verify:
+
+- no accidental debug/test routes
+- no duplicate routes
+- correct HTTP methods
+- correct API prefixes
+- expected controller/action mapping
+- dashboard route exists
+- usage endpoint exists.
+
+Do not add undocumented routes.
+
+==================================================
+5. API CONTRACT REVIEW
+==================================================
+
+Review the important endpoints against their implementation.
+
+Verify request validation and response structure.
+
+Important areas:
+
+POST /api/v1/usage
+
+GET /api/v1/merchants/{id}/dashboard
+
+And any other implemented endpoints required by the assignment.
+
+Ensure README examples match actual request/response structures.
+
+Do not invent API responses in documentation.
+
+==================================================
+6. MULTI-TENANCY FINAL CHECK
+==================================================
+
+Perform a final audit of tenant boundaries.
+
+Review all queries touching:
+
+- customers
+- plans
+- subscriptions
+- subscription_segments
+- usage_events
+- daily_usage
+- invoices
+- dashboard.
+
+Verify merchant_id/tenant ownership is correctly enforced wherever required.
+
+Pay special attention to:
+
+- route parameters
+- service methods
+- queued jobs
+- aggregation
+- billing
+- dashboard.
+
+Do not introduce a new tenancy abstraction at this stage.
+
+==================================================
+7. BILLING FINAL CHECK
+==================================================
+
+Review representative billing scenarios.
+
+Verify:
+
+1. Normal subscription.
+2. Usage below allowance.
+3. Usage exactly equal to allowance.
+4. Usage above allowance.
+5. Mid-cycle subscription start.
+6. Mid-cycle upgrade.
+7. Mid-cycle downgrade.
+8. Multiple subscription segments.
+9. Zero usage.
+10. Duplicate billing execution.
+
+Verify invoice totals manually against the documented formulas.
+
+Do not change the formula unless the existing implementation is genuinely incorrect.
+
+==================================================
+8. USAGE INGESTION FINAL CHECK
+==================================================
+
+Verify:
+
+- validation
+- tenant ownership
+- idempotency
+- duplicate retry handling
+- conflicting idempotency key handling
+- database uniqueness
+- rate limiting
+- lightweight synchronous processing.
+
+Ensure the usage API does NOT synchronously perform expensive billing/aggregation work.
+
+==================================================
+9. AGGREGATION FINAL CHECK
+==================================================
+
+Verify:
+
+usage_events
+        ↓
+chunked processing
+        ↓
+database aggregation
+        ↓
+daily_usage
+
+Ensure:
+
+- repeated aggregation is safe
+- late events can be handled
+- duplicate usage is not double counted
+- large datasets are not loaded entirely into memory.
+
+==================================================
+10. CACHE FINAL CHECK
+==================================================
+
+Verify:
+
+- pricing cache key
+- TTL
+- cache lookup
+- DB fallback
+- invalidation after pricing update
+- historical pricing independence.
+
+Ensure billing does not accidentally depend on the current cached plan price for historical segments.
+
+==================================================
+11. DASHBOARD FINAL CHECK
+==================================================
+
+Verify:
+
+- top 5 customers by current-month usage
+- projected overage revenue
+- >50% month-over-month drop
+- zero previous-month usage handling
+- tenant isolation
+- no obvious N+1 queries.
+
+Do not optimize prematurely.
+
+==================================================
+12. PERFORMANCE / SCALE REVIEW
+==================================================
+
+Review the implementation from the perspective of:
+
+50,00,000+ usage_event rows.
+
+Verify:
+
+- appropriate indexes exist
+- ingestion avoids unnecessary joins
+- aggregation is chunked
+- aggregation uses DB-side SUM/GROUP BY
+- daily_usage reduces repeated raw-event scanning
+- billing works from aggregated data
+- dashboard uses aggregated data where appropriate.
+
+Ensure README explains future:
+
+- partitioning
+- archival
+- read replicas
+- horizontal queue workers
+
+as future scaling options rather than falsely claiming they are implemented.
+
+==================================================
+13. SECURITY REVIEW
+==================================================
+
+Perform final practical security checks.
+
+Look for:
+
+- hardcoded credentials
+- committed .env
+- API keys
+- passwords
+- debug dumps
+- dd()
+- dump()
+- temporary test endpoints
+- unsafe raw SQL
+- mass assignment issues
+- unvalidated input
+- cross-tenant access.
+
+Remove only genuine accidental/debug artifacts.
+
+Do not introduce unrelated security infrastructure.
+
+==================================================
+14. GIT / REPOSITORY CLEANLINESS
+==================================================
+
+Inspect:
+
+git status
+git diff
+git ls-files
+
+Verify repository does NOT contain:
+
+- .env
+- credentials
+- local database files
+- IDE-specific temporary files
+- logs
+- cache files
+- node_modules if not required
+- vendor if the project's normal Git strategy excludes it.
+
+Verify .gitignore is appropriate.
+
+Do not remove required project files.
+
+==================================================
+15. PROMPTS DIRECTORY
+==================================================
+
+Verify:
+
+/prompts
+
+contains the actual AI prompt screenshots used during development.
+
+Expected logical sequence:
+
+01-project-foundation
+02-database-schema
+03-usage-api
+04-usage-aggregation
+05-billing-engine
+06-cache-dashboard
+07-integration-tests
+08-final-hardening
+09-final-qa
+
+If the current prompt screenshot is not yet saved, do NOT fabricate it.
+
+Only report missing screenshots.
+
+==================================================
+16. README FINAL ACCURACY CHECK
+==================================================
+
+Read the complete README and verify every statement against the actual code.
+
+Especially verify:
+
+- endpoint names
+- commands
+- class names
+- database tables
+- cache behavior
+- queue behavior
+- billing formula
+- proration formula
+- assumptions
+- test commands.
+
+Remove claims about functionality that is not implemented.
+
+The README must be honest.
+
+==================================================
+17. ADD A FINAL "SUBMISSION CHECKLIST"
+==================================================
+
+If not already present, add a concise checklist:
+
+- [ ] Database migrations verified
+- [ ] Tests passing
+- [ ] API endpoints verified
+- [ ] Idempotency implemented
+- [ ] Queue aggregation implemented
+- [ ] Billing/proration tested
+- [ ] Mid-cycle plan changes tested
+- [ ] Cache/invalidation implemented
+- [ ] Dashboard implemented
+- [ ] Rate limiting implemented
+- [ ] Multi-tenant isolation tested
+- [ ] README completed
+- [ ] Prompt screenshots included
+- [ ] No secrets committed.
+
+Use the actual project state.
+
+==================================================
+18. FINAL TEST COMMANDS
+==================================================
+
+Run the project's appropriate final validation commands.
+
+At minimum:
+
+php artisan test
+
+Also run relevant project formatter/static analysis commands if configured.
+
+Run:
+
+php artisan route:list
+
+and any safe migration validation required by the project.
+
+Do not run destructive production commands.
+
+==================================================
+19. FINAL REPORT
+==================================================
+
+At the end, provide a concise release-readiness report:
+
+A. Application status
+B. Test result
+C. Migration result
+D. Route result
+E. Security result
+F. Multi-tenancy result
+G. Billing result
+H. Scalability review result
+I. README result
+J. Prompt-log result
+K. Remaining issues, if any
+
+Classify remaining issues as:
+
+- BLOCKER
+- IMPORTANT
+- OPTIONAL
+
+The repository should only be considered submission-ready if there are no BLOCKER issues.
+
+Do not commit or push changes.
