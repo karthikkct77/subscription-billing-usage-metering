@@ -6,7 +6,7 @@ This project is a multi-tenant SaaS Subscription Billing & Usage-Metering backen
 
 ## Current Architecture
 
-The codebase is currently in the **Core Billing Engine** phase. The database migrations, Eloquent domain models, relationships, model factories, schema integrity tests, 50L+ usage event scalability design, high-throughput `POST /api/v1/usage` API, asynchronous `usage:aggregate` infrastructure, and the deterministic, segment-aware `BillingService` / `billing:generate` engine have been established.
+The codebase is currently in the **Cache & Merchant Dashboard** phase. The database migrations, Eloquent domain models, relationships, model factories, schema integrity tests, 50L+ usage event scalability design, high-throughput `POST /api/v1/usage` API, asynchronous `usage:aggregate` infrastructure, deterministic `BillingService` engine, `PlanPricingService` cache, and tenant-isolated `GET /api/v1/merchants/{id}/dashboard` API have been established.
 
 ## Tech Stack
 
@@ -240,6 +240,68 @@ Billing calculations use `snapshot_base_price`, `snapshot_included_usage_units`,
 
 - **Database Uniqueness**: Guaranteed by compound index `UNIQUE (subscription_id, period_starts_at, period_ends_at)` on `invoices`.
 - **Idempotent Retry**: Re-running `BillingService` or `billing:generate` for a cycle that has already been billed returns the existing `Invoice` record without creating duplicate invoices or line items.
+
+---
+
+## Pricing Cache & Invalidation Strategy
+
+The application provides a dedicated plan pricing caching layer via [`PlanPricingService`](file:///d:/subscription-billing-usage-metering/app/Services/PlanPricingService.php).
+
+- **Cache Key**: Predictable format `plan:{plan_id}:pricing`.
+- **Cached Data**: Array containing `id`, `merchant_id`, `name`, `code`, `base_price`, `billing_cycle`, `included_usage_units`, `overage_rate_per_unit`, and `is_active`.
+- **TTL**: 86400 seconds (24 hours).
+- **Cache Invalidation**: Automatic via [`PlanObserver`](file:///d:/subscription-billing-usage-metering/app/Observers/PlanObserver.php) attached to the `Plan` model (`saved`, `updated`, `deleted` events trigger `Cache::forget("plan:{$plan->id}:pricing")`).
+- **Database Fallback**: If the cache store is unavailable or on a cache miss, `PlanPricingService` falls back to direct database retrieval seamlessly without throwing application errors.
+- **Historical Billing Separation**: Historical invoice generation uses `SubscriptionSegment` pricing snapshots. The pricing cache is strictly an optimization for current plan and pricing lookups.
+
+---
+
+## Merchant Analytics Dashboard
+
+The Merchant Dashboard endpoint `GET /api/v1/merchants/{id}/dashboard` ([MerchantDashboardController.php](file:///d:/subscription-billing-usage-metering/app/Http/Controllers/Api/MerchantDashboardController.php)) provides tenant-isolated business analytics.
+
+```json
+{
+  "success": true,
+  "data": {
+    "top_customers_by_usage": [
+      {
+        "customer_id": 101,
+        "name": "Acme Corp",
+        "email": "contact@acme.com",
+        "total_usage_units": 15000
+      }
+    ],
+    "projected_overage_revenue": 1250.50,
+    "churn_risk_customers": [
+      {
+        "customer_id": 202,
+        "name": "Beta Inc",
+        "email": "billing@beta.com",
+        "current_month_usage": 400,
+        "previous_month_usage": 1000,
+        "drop_percentage": 60.0
+      }
+    ]
+  },
+  "message": "Dashboard retrieved successfully."
+}
+```
+
+### Dashboard Analytics Metrics:
+
+1. **Top 5 Customers by Usage This Month**:
+   - Queries `daily_usages` pre-aggregated table for the current calendar month.
+   - SQL `GROUP BY customer_id ORDER BY SUM(total_usage_units) DESC LIMIT 5`.
+2. **Projected Overage Revenue for Current Cycle**:
+   - Analyzes active subscriptions for the merchant in the current billing cycle.
+   - Calculates elapsed cycle days ($D_{\text{elapsed}}$) vs total cycle days ($D_{\text{total}}$).
+   - Projects total cycle usage: $U_{\text{projected}} = \left\lfloor \frac{\text{Accumulated Usage}}{D_{\text{elapsed}}} \times D_{\text{total}} \right\rfloor$.
+   - Calculates projected overage units beyond included plan allowance and applies segment overage pricing rates.
+3. **Churn Risk Customers (>50% Usage Drop Month-over-Month)**:
+   - Compares total `daily_usages` in current month vs previous calendar month per customer.
+   - Condition: $\text{previous\_usage} > 0$ and $\text{current\_usage} < \text{previous\_usage} \times 0.50$ (drop strictly greater than 50%).
+   - Returns customer details with exact `drop_percentage`.
 
 ---
 
