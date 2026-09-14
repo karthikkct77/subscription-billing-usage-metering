@@ -20,7 +20,7 @@ class DailyUsage extends Model
     ];
 
     protected $casts = [
-        'usage_date' => 'date',
+        'usage_date' => 'date:Y-m-d',
         'total_usage_units' => 'integer',
     ];
 

@@ -6,7 +6,7 @@ This project is a multi-tenant SaaS Subscription Billing & Usage-Metering backen
 
 ## Current Architecture
 
-The codebase is currently in the **Usage Ingestion API** phase. The database migrations, Eloquent domain models, relationships, model factories, schema integrity tests, 50L+ usage event scalability design, and the high-throughput `POST /api/v1/usage` endpoint have been established.
+The codebase is currently in the **Asynchronous Usage Aggregation** phase. The database migrations, Eloquent domain models, relationships, model factories, schema integrity tests, 50L+ usage event scalability design, high-throughput `POST /api/v1/usage` API, and the asynchronous chunked `usage:aggregate` infrastructure have been established.
 
 ## Tech Stack
 
@@ -125,6 +125,51 @@ High-volume API event ingestion uses a database-enforced compound unique index `
 
 - **Lightweight Execution Path**: The `POST /api/v1/usage` HTTP path is strictly lightweight. It performs payload validation, active subscription/segment resolution, and database insertion. Heavy operations (billing calculations, overage math, daily aggregates) are excluded from the synchronous request path.
 - **Rate Limiting**: Throttled by `throttle:usage` middleware (configured in `AppServiceProvider`). Requests are limited to 600 requests/minute per merchant (`merchant_id`). Exceeding the rate limit returns **HTTP 429 Too Many Requests**.
+
+---
+
+## Usage Aggregation Architecture
+
+The usage aggregation infrastructure processes raw `usage_events` records asynchronously into `daily_usages` records.
+
+```
+usage_events ──> Queue / Command ──> AggregateDailyUsage Job ──> UsageAggregationService ──> daily_usages (upsert)
+```
+
+### Key Components:
+- **`UsageAggregationService`** ([app/Services/UsageAggregationService.php](file:///d:/subscription-billing-usage-metering/app/Services/UsageAggregationService.php)): Core domain service executing primary-key chunking and exact recomputation.
+- **`AggregateDailyUsage`** ([app/Jobs/AggregateDailyUsage.php](file:///d:/subscription-billing-usage-metering/app/Jobs/AggregateDailyUsage.php)): Queueable job with retry policies (`tries = 3`, `backoff = [10, 30, 60]`, `timeout = 120`).
+- **`usage:aggregate` Command** ([app/Console/Commands/AggregateUsageCommand.php](file:///d:/subscription-billing-usage-metering/app/Console/Commands/AggregateUsageCommand.php)): Artisan CLI command for manual administration or scheduled execution (`php artisan usage:aggregate --from=2026-09-01 --to=2026-09-14 --queue`).
+
+---
+
+### Chunking Strategy (`lazyById` vs `OFFSET`)
+
+Processing tens of millions of raw usage events requires strict primary-key chunking:
+- **Why `lazyById` / `chunkById`?** Standard offset-based pagination (`LIMIT 1000 OFFSET 5000000`) forces database engines to scan 5,000,000 index entries before returning the next 1,000 rows, resulting in severe $O(N^2)$ performance degradation. Primary-key chunking uses `WHERE id > last_seen_id ORDER BY id ASC LIMIT 1000`, leveraging the primary key index for $O(1)$ page traversal regardless of dataset depth.
+- **Memory Footprint**: Memory usage remains constant ($\le 10\text{MB}$) regardless of whether 10,000 or 50,000,000 rows are processed.
+
+---
+
+### Idempotent Aggregation & Recomputation
+
+- **Exact Recomputation**: Instead of incrementing `total_usage_units` via `UPDATE daily_usages SET total_usage_units = total_usage_units + X`, `UsageAggregationService` calculates `SUM(usage_units)` for each `(subscription_id, subscription_segment_id, usage_date)` tuple present in the window and updates the record via `updateOrCreate`.
+- **Retry Safety**: Executing the aggregation job 10 times produces the exact same `daily_usage` totals without double-counting.
+- **Database Uniqueness**: Guaranteed by unique compound key `UNIQUE (subscription_id, subscription_segment_id, usage_date)`.
+
+---
+
+### Late Arriving Events
+
+Usage events arriving out of chronological order (e.g. Sept 10 event arriving on Sept 14) are handled seamlessly:
+1. The late event is ingested safely into `usage_events` with its historical `occurred_at` timestamp.
+2. During the next aggregation run covering that window, `UsageAggregationService` identifies the affected `(subscription_id, subscription_segment_id, usage_date)` key, re-calculates the complete `SUM(usage_units)` for that date, and updates `daily_usages` to reflect the corrected historical aggregate.
+
+---
+
+### Subscription Segment Isolation for Mid-Cycle Plan Changes
+
+Daily aggregates preserve the `subscription_segment_id` associated with each usage event. If a customer upgrades plans mid-cycle, usage incurred under Segment A and Segment B on their respective dates remain separated in `daily_usages`, allowing future billing calculation to apply the exact snapshot pricing of each segment correctly.
 
 ---
 
