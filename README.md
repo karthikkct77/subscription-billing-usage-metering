@@ -421,3 +421,39 @@ The application follows a clean separation of concerns using standard Laravel co
 - **Foundation Scope**: Non-business functionality is intentionally deferred to subsequent phase implementations to maintain focus on foundation quality.
 - **Response Convention**: Standardized JSON responses for API endpoints (`success`, `data`, `message` for success; `success`, `message`, `errors` for errors).
 - **Exception Handling**: API exception responses sanitize uncaught server exceptions in production mode to prevent information disclosure.
+
+---
+
+## Testing Strategy
+
+The application maintains a comprehensive automated test suite consisting of feature, integration, and end-to-end (E2E) tests.
+
+### Test Architecture & Coverage Highlights:
+
+1. **Full End-to-End Billing Lifecycle** ([`EndToEndBillingWorkflowTest`](file:///d:/subscription-billing-usage-metering/tests/Feature/EndToEndBillingWorkflowTest.php)):
+   - Verifies the complete multi-module pipeline: `Merchant Creation -> Plan Setup -> Customer Subscription -> Usage Event Ingestion (POST /api/v1/usage) -> Asynchronous Daily Aggregation (usage:aggregate) -> Billing Engine Invoice Generation (billing:generate) -> Line Item Breakdown & Invoice Verification -> Merchant Analytics Dashboard`.
+2. **Multi-Tenant Data Isolation** ([`MultiTenantIsolationTest`](file:///d:/subscription-billing-usage-metering/tests/Feature/MultiTenantIsolationTest.php)):
+   - Verifies strict tenant boundary enforcement across HTTP ingestion API (cross-tenant customer rejection), aggregation jobs, billing engine invoice generation, and merchant dashboard reporting.
+3. **High-Throughput Ingestion & Idempotency** ([`UsageApiTest`](file:///d:/subscription-billing-usage-metering/tests/Feature/UsageApiTest.php)):
+   - Tests payload validation, positive unit constraints, tenant ownership validation, duplicate key idempotency (HTTP 200 OK), payload conflict detection (HTTP 409 Conflict), rate limiting (HTTP 429), and database uniqueness race condition protection.
+4. **Asynchronous Usage Aggregation** ([`UsageAggregationTest`](file:///d:/subscription-billing-usage-metering/tests/Feature/UsageAggregationTest.php)):
+   - Tests multi-event summation, idempotency re-computation, primary-key chunking (`lazyById`), date range windowing, out-of-order late event historical corrections, and subscription segment isolation for mid-cycle plan changes.
+5. **Core Billing Engine & Proration** ([`BillingEngineTest`](file:///d:/subscription-billing-usage-metering/tests/Feature/BillingEngineTest.php)):
+   - Tests full-cycle pricing, mid-cycle start proration, 1-day segment proration, leap-year Feb & variable month length math (28, 29, 30, 31 days), included usage allowance proration, overage math, mid-cycle plan upgrades & downgrades, historical pricing snapshots, and invoice billing idempotency per cycle.
+6. **Plan Pricing Caching** ([`PlanPricingCacheTest`](file:///d:/subscription-billing-usage-metering/tests/Feature/PlanPricingCacheTest.php)):
+   - Tests cache key formatting (`plan:{id}:pricing`), initial cache population, subsequent cache hit, automatic invalidation via `PlanObserver`, database fallback on cache failure, and separation of cached current plan pricing from historical segment billing snapshots.
+7. **Merchant Analytics Dashboard** ([`MerchantDashboardTest`](file:///d:/subscription-billing-usage-metering/tests/Feature/MerchantDashboardTest.php)):
+   - Tests `GET /api/v1/merchants/{id}/dashboard` endpoint, top 5 customer sorting/limiting, projected overage revenue math across active subscriptions, churn risk detection (>50% MoM drop), and 404 error handling for non-existent merchants.
+
+### Running the Test Suite:
+
+- **Run all automated tests**:
+  ```bash
+  php artisan test
+  ```
+
+- **Run code formatting check (Pint)**:
+  ```bash
+  vendor/bin/pint --test
+  ```
+
