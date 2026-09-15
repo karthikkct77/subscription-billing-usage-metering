@@ -368,6 +368,30 @@ Returns tenant-isolated performance metrics computed efficiently from pre-aggreg
 
 ---
 
+## 13. Dashboard UI
+
+A lightweight, merchant-facing presentation UI is included to interactively demonstrate the backend billing and metering capabilities.
+
+### Accessing the Dashboard:
+- **URL**: `http://127.0.0.1:8000/dashboard`
+- **Merchant Context Switching**: `http://127.0.0.1:8000/dashboard?merchant_id={id}`
+
+### Demo Data & Seeding:
+Seed sample multi-tenant demo data using Artisan:
+```bash
+php artisan db:seed
+```
+This populates sample merchants (e.g., *Acme SaaS Solutions* and *CloudScale API Services*), plans, active subscriptions, customers, and daily usage.
+
+### Presentation Layer & Architecture:
+1. **Reuse of Backend Architecture**: The web controller ([`DashboardController`](file:///d:/subscription-billing-usage-metering/app/Http/Controllers/DashboardController.php)) invokes [`MerchantDashboardService::getDashboardData($merchantId)`](file:///d:/subscription-billing-usage-metering/app/Services/MerchantDashboardService.php) directly. It does not issue redundant HTTP requests from Laravel to itself nor duplicate calculation logic.
+2. **Calculation Isolation**: Blade views ([`resources/views/dashboard.blade.php`](file:///d:/subscription-billing-usage-metering/resources/views/dashboard.blade.php)) act strictly as presentation templates. Top 5 customer ranking, projected overage revenue, and >50% MoM churn risk detection remain centrally owned by the backend service.
+3. **Tenant Selection Context**: Supports explicit tenant context switching via `?merchant_id=X` with validation, ensuring cross-tenant isolation is preserved.
+4. **Graceful States**: Renders clean empty states and user-friendly error banners when data is missing or invalid without exposing internal exception tracebacks.
+
+---
+
+
 ## 13. Queue Strategy
 
 Asynchronous workflows are handled via Laravel Queue jobs with retry and backoff policies:
