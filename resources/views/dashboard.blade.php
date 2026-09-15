@@ -9,6 +9,9 @@
     <link rel="preconnect" href="https://fonts.bunny.net">
     <link href="https://fonts.bunny.net/css?family=instrument-sans:400,500,600,700" rel="stylesheet" />
 
+    <!-- Chart.js -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <!-- Styles -->
     @if (file_exists(public_path('build/manifest.json')) || file_exists(public_path('hot')))
         @vite(['resources/css/app.css', 'resources/js/app.js'])
@@ -165,6 +168,40 @@
                         {{ $riskCount > 0 ? 'Requires attention for potential churn' : 'No significant churn risk detected' }}
                     </p>
                 </div>
+            </div>
+
+            <!-- Daily Usage Trends Line Chart Section -->
+            <div class="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+                <div class="flex items-center justify-between pb-4 border-b border-slate-100 mb-6">
+                    <div>
+                        <h3 class="text-lg font-bold text-slate-900">Daily Usage Trends</h3>
+                        <p class="text-xs text-slate-500">Merchant daily aggregate usage volume for the current calendar month</p>
+                    </div>
+                    <span class="px-2.5 py-1 text-xs font-medium rounded-md bg-indigo-50 text-indigo-700 border border-indigo-100">
+                        Current Month
+                    </span>
+                </div>
+
+                @php
+                    $trendList = $dashboardData['daily_usage_trends'] ?? [];
+                    $totalMonthUsage = array_sum(array_column($trendList, 'usage_units'));
+                @endphp
+
+                @if ($totalMonthUsage > 0)
+                    <div class="relative w-full h-72">
+                        <canvas id="dailyUsageChart"></canvas>
+                    </div>
+                @else
+                    <div class="p-10 text-center">
+                        <div class="inline-flex items-center justify-center w-12 h-12 rounded-full bg-slate-100 text-slate-400 mb-3">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 12l3-3 3 3 4-4M8 21l4-4 4 4M3 4h18M4 4h16v12a1 1 0 01-1 1H5a1 1 0 01-1-1V4z" />
+                            </svg>
+                        </div>
+                        <h4 class="text-sm font-semibold text-slate-800">No usage data available for this month.</h4>
+                        <p class="text-xs text-slate-500 mt-1">There are no daily usage records logged for the current billing period.</p>
+                    </div>
+                @endif
             </div>
 
             <!-- Content Grid: Top Customers & Projected Overage -->
@@ -334,5 +371,84 @@
             Subscription Billing & Usage-Metering System &bull; Merchant Presentation Layer &bull; Powered by Laravel
         </div>
     </footer>
+
+    @if ($merchant && !empty($dashboardData['daily_usage_trends']) && array_sum(array_column($dashboardData['daily_usage_trends'], 'usage_units')) > 0)
+        <script>
+            document.addEventListener('DOMContentLoaded', function() {
+                const trendData = @json($dashboardData['daily_usage_trends']);
+                const ctx = document.getElementById('dailyUsageChart');
+                if (!ctx || !trendData || trendData.length === 0) return;
+
+                const labels = trendData.map(d => d.label);
+                const values = trendData.map(d => d.usage_units);
+
+                new Chart(ctx, {
+                    type: 'line',
+                    data: {
+                        labels: labels,
+                        datasets: [{
+                            label: 'Daily Usage Units',
+                            data: values,
+                            borderColor: '#4f46e5',
+                            backgroundColor: 'rgba(79, 70, 229, 0.08)',
+                            borderWidth: 2.5,
+                            fill: true,
+                            tension: 0.35,
+                            pointBackgroundColor: '#4f46e5',
+                            pointHoverRadius: 6,
+                            pointRadius: 3,
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {
+                            legend: {
+                                display: false
+                            },
+                            tooltip: {
+                                callbacks: {
+                                    title: function(context) {
+                                        return context[0].label;
+                                    },
+                                    label: function(context) {
+                                        return `Usage: ${context.parsed.y.toLocaleString()} units`;
+                                    }
+                                }
+                            }
+                        },
+                        scales: {
+                            x: {
+                                grid: {
+                                    display: false
+                                },
+                                ticks: {
+                                    font: {
+                                        size: 11
+                                    },
+                                    color: '#64748b'
+                                }
+                            },
+                            y: {
+                                beginAtZero: true,
+                                grid: {
+                                    color: '#f1f5f9'
+                                },
+                                ticks: {
+                                    font: {
+                                        size: 11
+                                    },
+                                    color: '#64748b',
+                                    callback: function(value) {
+                                        return value >= 1000 ? (value / 1000) + 'k' : value;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                });
+            });
+        </script>
+    @endif
 </body>
 </html>

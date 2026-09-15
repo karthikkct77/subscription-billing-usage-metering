@@ -258,4 +258,48 @@ class MerchantDashboardTest extends TestCase
 
         $this->assertEmpty($churnList);
     }
+
+    /**
+     * Test daily usage trends calculation generates continuous timeline for current month.
+     */
+    public function test_daily_usage_trends_calculation(): void
+    {
+        $now = Carbon::parse('2026-09-15 12:00:00');
+
+        $customer = Customer::factory()->create(['merchant_id' => $this->merchant->id]);
+
+        DailyUsage::factory()->create([
+            'merchant_id' => $this->merchant->id,
+            'customer_id' => $customer->id,
+            'usage_date' => '2026-09-01',
+            'total_usage_units' => 120,
+        ]);
+
+        DailyUsage::factory()->create([
+            'merchant_id' => $this->merchant->id,
+            'customer_id' => $customer->id,
+            'usage_date' => '2026-09-05',
+            'total_usage_units' => 350,
+        ]);
+
+        $service = app(MerchantDashboardService::class);
+        $trends = $service->getDailyUsageTrends($this->merchant->id, $now);
+
+        // 30 days in September
+        $this->assertCount(30, $trends);
+
+        // Sept 01 should be 120
+        $this->assertEquals('2026-09-01', $trends[0]['date']);
+        $this->assertEquals('Sep 01', $trends[0]['label']);
+        $this->assertEquals(120, $trends[0]['usage_units']);
+
+        // Sept 02 should be 0 (continuous timeline)
+        $this->assertEquals('2026-09-02', $trends[1]['date']);
+        $this->assertEquals(0, $trends[1]['usage_units']);
+
+        // Sept 05 should be 350
+        $this->assertEquals('2026-09-05', $trends[4]['date']);
+        $this->assertEquals(350, $trends[4]['usage_units']);
+    }
 }
+

@@ -21,6 +21,7 @@ class MerchantDashboardService
             'top_customers_by_usage' => $this->getTopCustomersByUsage($merchantId, $now),
             'projected_overage_revenue' => $this->getProjectedOverageRevenue($merchantId, $now),
             'churn_risk_customers' => $this->getChurnRiskCustomers($merchantId, $now),
+            'daily_usage_trends' => $this->getDailyUsageTrends($merchantId, $now),
         ];
     }
 
@@ -178,4 +179,39 @@ class MerchantDashboardService
 
         return $churnRiskList;
     }
+
+    /**
+     * Get daily usage trends for the current calendar month.
+     */
+    public function getDailyUsageTrends(int $merchantId, ?Carbon $now = null): array
+    {
+        $now = $now ?? now();
+        $startOfMonth = $now->copy()->startOfMonth();
+        $daysInMonth = $now->daysInMonth;
+
+        $monthStart = $startOfMonth->toDateString();
+        $monthEnd = $now->copy()->endOfMonth()->toDateString();
+
+        $dailyUsages = DailyUsage::where('merchant_id', $merchantId)
+            ->whereBetween('usage_date', [$monthStart, $monthEnd])
+            ->select('usage_date', DB::raw('SUM(total_usage_units) as total_units'))
+            ->groupBy('usage_date')
+            ->pluck('total_units', 'usage_date');
+
+        $trends = [];
+        for ($day = 1; $day <= $daysInMonth; $day++) {
+            $dateObj = $startOfMonth->copy()->day($day);
+            $dateStr = $dateObj->toDateString();
+            $label = $dateObj->format('M d');
+
+            $trends[] = [
+                'date' => $dateStr,
+                'label' => $label,
+                'usage_units' => (int) ($dailyUsages[$dateStr] ?? 0),
+            ];
+        }
+
+        return $trends;
+    }
 }
+

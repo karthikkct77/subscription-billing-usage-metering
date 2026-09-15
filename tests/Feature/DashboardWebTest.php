@@ -48,6 +48,8 @@ class DashboardWebTest extends TestCase
         $response->assertSee('Acme Analytics');
         $response->assertSee('Test Customer');
         $response->assertSee('1,500');
+        $response->assertSee('Daily Usage Trends');
+        $response->assertSee('dailyUsageChart');
     }
 
     public function test_dashboard_renders_specific_merchant_context(): void
@@ -121,5 +123,16 @@ class DashboardWebTest extends TestCase
         $response->assertStatus(200);
         $response->assertSee('Dropping Customer');
         $response->assertSee('-80%');
+    }
+
+    public function test_dashboard_displays_empty_state_when_no_trend_data(): void
+    {
+        $merchant = Merchant::factory()->create(['name' => 'Empty Merchant']);
+
+        $response = $this->get("/dashboard?merchant_id={$merchant->id}");
+
+        $response->assertStatus(200);
+        $response->assertSee('No usage data available for this month.');
+        $response->assertDontSee('dailyUsageChart');
     }
 }
